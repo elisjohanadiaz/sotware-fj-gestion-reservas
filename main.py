@@ -318,3 +318,78 @@ class SistemaGestion:
         self._buscar(self.__reservas, identificador).finalizar()
         return "Reserva finalizada correctamente."
 
+import sys
+
+
+def simular_operaciones():
+    """Usa un sistema independiente; no modifica los registros de la interfaz."""
+    sistema = SistemaGestion()
+    # Cada caso declara si debe fallar: un error previsto es un caso correcto.
+    casos = [
+        ("Registrar cliente válido", False,
+         lambda: sistema.registrar_cliente("C1", "Ana Pérez", "ana@example.com", "3001234567")),
+        ("Rechazar correo inválido", True,
+         lambda: sistema.registrar_cliente("C2", "Luis", "correo-invalido", "3001234567")),
+        ("Rechazar teléfono inválido", True,
+         lambda: sistema.registrar_cliente("C2", "Luis", "luis@example.com", "abc")),
+        ("Rechazar cliente duplicado", True,
+         lambda: sistema.registrar_cliente("C1", "Ana Pérez", "ana@example.com", "3001234567")),
+        ("Crear sala válida", False,
+         lambda: sistema.registrar_servicio(ReservaSala("S1", "Sala Norte", 50000, 10))),
+        ("Rechazar tarifa negativa", True,
+         lambda: sistema.registrar_servicio(ReservaSala("S2", "Sala Sur", -1, 10))),
+        ("Crear equipo válido", False,
+         lambda: sistema.registrar_servicio(AlquilerEquipo("E1", "Portátil", 15000, "Computador"))),
+        ("Crear asesoría válida", False,
+         lambda: sistema.registrar_servicio(AsesoriaEspecializada("A1", "Soporte", 80000, "Software"))),
+        ("Rechazar capacidad fraccionaria", True,
+         lambda: sistema.registrar_servicio(ReservaSala("S2", "Sala Sur", 50000, "2.5"))),
+        ("Controlar parámetros faltantes", True,
+         lambda: sistema.registrar_cliente("C2", "Luis")),
+        ("Confirmar reserva de sala", False,
+         lambda: sistema.crear_reserva("R1", "C1", "S1", 2)),
+        ("Rechazar servicio ocupado", True,
+         lambda: sistema.crear_reserva("R2", "C1", "S1", 2)),
+        ("Rechazar cliente inexistente", True,
+         lambda: sistema.crear_reserva("R2", "NO_EXISTE", "E1", 2)),
+        ("Rechazar duración cero", True,
+         lambda: sistema.crear_reserva("R2", "C1", "E1", 0)),
+        ("Cancelar y liberar sala", False, lambda: sistema.cancelar_reserva("R1")),
+        ("Volver a reservar sala liberada", False,
+         lambda: sistema.crear_reserva("R2", "C1", "S1", 3, "0.10", "0.05")),
+        ("Rechazar segunda confirmación", True, lambda: sistema.reservas[-1].confirmar()),
+        ("Finalizar y liberar sala", False, lambda: sistema.finalizar_reserva("R2")),
+        ("Rechazar cancelación de reserva finalizada", True,
+         lambda: sistema.cancelar_reserva("R2")),
+        ("Rechazar descuento superior al 100%", True,
+         lambda: sistema.crear_reserva("R3", "C1", "E1", 2, 0, "1.5")),
+        ("Confirmar alquiler de equipo", False,
+         lambda: sistema.crear_reserva("R3", "C1", "E1", 2)),
+        ("Confirmar asesoría", False,
+         lambda: sistema.crear_reserva("R4", "C1", "A1", "0.5")),
+        ("Cálculo polimórfico con variantes opcionales", False,
+         lambda: [(s.calcular_costo(2), s.calcular_costo(2, "0.10"),
+                   s.calcular_costo(2, "0.10", "0.05")) for s in sistema.servicios]),
+        ("Rechazar duración no finita", True,
+         lambda: sistema.crear_reserva("R5", "C1", "S1", "NaN")),
+    ]
+    lineas = ["SIMULACIÓN DE SOFTWARE FJ (datos ficticios)"]
+    aprobados = 0
+    for indice, (nombre, debe_fallar, accion) in enumerate(casos, 1):
+        try:
+            resultado = accion()
+        except Exception as error:
+            # Frontera de la aplicación: registra incluso errores inesperados.
+            LOG.exception("Simulación %s: %s", indice, nombre)
+            correcto = debe_fallar and isinstance(error, (ErrorSistema, TypeError))
+            detalle = f"{type(error).__name__}: {error}"
+        else:
+            correcto = not debe_fallar
+            detalle = resultado.describir() if hasattr(resultado, "describir") else str(resultado)
+        finally:
+            LOG.info("Simulación: operación %s terminada", indice)
+        aprobados += int(correcto)
+        lineas.append(f"{indice:02d}. {'OK' if correcto else 'FALLO'} | {nombre}\n    {detalle}")
+    lineas.append(f"\nResultado: {aprobados}/{len(casos)} casos con comportamiento esperado.")
+    return "\n".join(lineas), aprobados == len(casos)
+
