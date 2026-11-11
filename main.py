@@ -393,3 +393,133 @@ def simular_operaciones():
     lineas.append(f"\nResultado: {aprobados}/{len(casos)} casos con comportamiento esperado.")
     return "\n".join(lineas), aprobados == len(casos)
 
+
+def abrir_interfaz():
+    # Importación diferida: --demo no requiere una pantalla ni cargar Tkinter.
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+    from tkinter.scrolledtext import ScrolledText
+
+    class Aplicacion:
+        def __init__(self, ventana):
+            self.sistema = SistemaGestion()
+            self.ventana = ventana
+            ventana.title("Software FJ - Clientes, servicios y reservas")
+            ventana.geometry("980x760")
+            ventana.minsize(820, 650)
+            ventana.columnconfigure(0, weight=1)
+            ventana.rowconfigure(2, weight=1)
+            ttk.Label(ventana, text="Software FJ", font=("Arial", 20, "bold")).grid(
+                row=0, column=0, sticky="w", padx=18, pady=10)
+            pestañas = ttk.Notebook(ventana)
+            pestañas.grid(row=1, column=0, sticky="ew", padx=18)
+            self.c = self.formulario(pestañas, "Clientes", [
+                ("Identificador", ""), ("Nombre", ""), ("Correo", ""), ("Teléfono", "")])
+            ttk.Button(self.c["panel"], text="Registrar cliente", command=lambda: self.ejecutar(
+                lambda: self.sistema.registrar_cliente(*self.valores(self.c)))).grid(
+                    row=5, column=0, columnspan=2, pady=8)
+            self.s = self.formulario(pestañas, "Servicios", [
+                ("Identificador", ""), ("Nombre", ""), ("Tarifa por hora", ""),
+                ("Capacidad / tipo / especialidad", "")])
+            ttk.Label(self.s["panel"], text="Tipo de servicio").grid(row=5, column=0, sticky="w")
+            self.tipo = ttk.Combobox(self.s["panel"], values=("Sala", "Equipo", "Asesoría"), state="readonly")
+            self.tipo.set("Sala")
+            self.tipo.grid(row=5, column=1, sticky="ew")
+            ttk.Button(self.s["panel"], text="Registrar servicio", command=lambda: self.ejecutar(
+                self.registrar_servicio)).grid(row=6, column=0, columnspan=2, pady=8)
+            self.r = self.formulario(pestañas, "Reservas", [
+                ("Identificador de reserva", ""), ("Identificador de cliente", ""),
+                ("Identificador de servicio", ""), ("Duración en horas", "2"),
+                ("Impuesto (0 a 1)", "0"), ("Descuento (0 a 1)", "0")])
+            acciones = ttk.Frame(self.r["panel"])
+            acciones.grid(row=7, column=0, columnspan=2, pady=8)
+            ttk.Button(acciones, text="Crear y confirmar", command=lambda: self.ejecutar(
+                lambda: self.sistema.crear_reserva(*self.valores(self.r)))).pack(side="left", padx=4)
+            ttk.Button(acciones, text="Cancelar", command=lambda: self.ejecutar(
+                lambda: self.sistema.cancelar_reserva(self.valores(self.r)[0]))).pack(side="left", padx=4)
+            ttk.Button(acciones, text="Finalizar", command=lambda: self.ejecutar(
+                lambda: self.sistema.finalizar_reserva(self.valores(self.r)[0]))).pack(side="left", padx=4)
+            self.salida = ScrolledText(ventana, wrap="word", height=15, font=("Consolas", 10))
+            self.salida.grid(row=2, column=0, sticky="nsew", padx=18, pady=12)
+            controles = ttk.Frame(ventana)
+            controles.grid(row=3, column=0, pady=(0, 12))
+            ttk.Button(controles, text="Ver todos los registros", command=self.listar).pack(side="left", padx=5)
+            ttk.Button(controles, text="Simular 24 operaciones", command=lambda: self.ejecutar(
+                lambda: simular_operaciones()[0])).pack(side="left", padx=5)
+            ttk.Label(ventana, text="Datos en memoria: se eliminan al cerrar. Solo los eventos y errores se guardan en eventos.log.").grid(
+                row=4, column=0, padx=12, pady=(0, 8))
+            self.escribir("Registre un cliente y un servicio; luego cree una reserva.\n"
+                          "Sala: capacidad entera. Equipo: tipo de equipo. Asesoría: especialidad.\n"
+                          "Los impuestos y descuentos son tasas configurables de ejemplo, no tarifas legales.")
+
+        @staticmethod
+        def formulario(pestañas, titulo, campos):
+            panel = ttk.Frame(pestañas, padding=12)
+            panel.columnconfigure(1, weight=1)
+            pestañas.add(panel, text=titulo)
+            entradas = []
+            for fila, (nombre, valor) in enumerate(campos):
+                ttk.Label(panel, text=nombre).grid(row=fila, column=0, sticky="w", padx=(0, 15), pady=3)
+                entrada = ttk.Entry(panel, width=55)
+                entrada.insert(0, valor)
+                entrada.grid(row=fila, column=1, sticky="ew", pady=3)
+                entradas.append(entrada)
+            return {"panel": panel, "entradas": entradas}
+
+        @staticmethod
+        def valores(formulario):
+            return [entrada.get().strip() for entrada in formulario["entradas"]]
+
+        def escribir(self, texto):
+            self.salida.delete("1.0", tk.END)
+            self.salida.insert(tk.END, texto)
+
+        def ejecutar(self, accion):
+            try:
+                resultado = accion()
+            except Exception as error:
+                LOG.exception("Operación de la interfaz rechazada")
+                mensaje = str(error) if isinstance(error, ErrorSistema) else "Error inesperado; consulte eventos.log."
+                self.escribir(f"Operación no realizada: {mensaje}\nPuede corregir los datos y continuar.")
+                messagebox.showerror("Operación no realizada", mensaje)
+            else:
+                texto_resultado = resultado.describir() if hasattr(resultado, "describir") else str(resultado)
+                self.escribir(texto_resultado)
+            finally:
+                LOG.info("Interfaz lista para la siguiente operación")
+
+        def registrar_servicio(self):
+            constructores = {"Sala": ReservaSala, "Equipo": AlquilerEquipo, "Asesoría": AsesoriaEspecializada}
+            return self.sistema.registrar_servicio(constructores[self.tipo.get()](*self.valores(self.s)))
+
+        def listar(self):
+            lineas = []
+            for titulo, registros in (("CLIENTES", self.sistema.clientes),
+                                      ("SERVICIOS", self.sistema.servicios), ("RESERVAS", self.sistema.reservas)):
+                lineas.append(f"\n{titulo}")
+                # Polimorfismo sobre las entidades del sistema.
+                lineas.extend(objeto.describir() for objeto in registros)
+                if not registros:
+                    lineas.append("Sin registros.")
+            self.escribir("\n".join(lineas))
+
+    raiz = tk.Tk()
+    Aplicacion(raiz)
+    raiz.mainloop()
+
+
+if __name__ == "__main__":
+    try:
+        ruta = configurar_log()
+    except OSError as error:
+        print(f"No se puede crear eventos.log: {error}. Mueva el proyecto a una carpeta con permiso de escritura.")
+        sys.exit(1)
+    LOG.info("Inicio de Software FJ")
+    if "--demo" in sys.argv:
+        reporte, correcto = simular_operaciones()
+        print(reporte)
+        print(f"\nRegistro de eventos: {ruta}")
+        sys.exit(0 if correcto else 1)
+    else:
+        abrir_interfaz()
+        
