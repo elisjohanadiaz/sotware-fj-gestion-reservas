@@ -106,3 +106,96 @@ class Cliente(Entidad):
 
     def describir(self):
         return f"{self.identificador} | {self.nombre} | {self.correo} | {self.telefono}"
+
+from abc import abstractmethod
+from decimal import Decimal, ROUND_HALF_UP
+
+
+class Servicio(Entidad):
+    def __init__(self, identificador, nombre, tarifa):
+        super().__init__(identificador)
+        self.__nombre = texto(nombre, "Nombre del servicio")
+        self.__tarifa = numero(tarifa, "Tarifa por hora", Decimal("0.01"))
+        self.__disponible = True
+
+    @property
+    def nombre(self):
+        return self.__nombre
+
+    @property
+    def tarifa(self):
+        return self.__tarifa
+
+    @property
+    def disponible(self):
+        return self.__disponible
+
+    def cambiar_disponibilidad(self, valor):
+        if not isinstance(valor, bool):
+            raise DatoInvalido("Disponibilidad: se requiere True o False.")
+        self.__disponible = valor
+
+    @abstractmethod
+    def validar_parametros(self, duracion):
+        pass
+
+    @abstractmethod
+    def calcular_costo(self, duracion, impuesto=0, descuento=0):
+        """Parámetros opcionales para simular variantes de sobrecarga en Python."""
+
+    def _total(self, base, impuesto, descuento):
+        tasa = numero(impuesto, "Impuesto", maximo=Decimal("1"))
+        rebaja = numero(descuento, "Descuento", maximo=Decimal("1"))
+        total = base * (1 - rebaja) * (1 + tasa)
+        if not total.is_finite() or total < 0:
+            raise DatoInvalido("El cálculo produjo un costo inconsistente.")
+        return total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+class ReservaSala(Servicio):
+    def __init__(self, identificador, nombre, tarifa, capacidad):
+        super().__init__(identificador, nombre, tarifa)
+        cantidad = numero(capacidad, "Capacidad", Decimal("1"), Decimal("1000"))
+        if cantidad != cantidad.to_integral_value():
+            raise DatoInvalido("Capacidad: debe ser un número entero.")
+        self.capacidad = int(cantidad)
+
+    def validar_parametros(self, duracion):
+        return numero(duracion, "Horas de sala", Decimal("1"), Decimal("12"))
+
+    def calcular_costo(self, duracion, impuesto=0, descuento=0):
+        return self._total(self.tarifa * self.validar_parametros(duracion), impuesto, descuento)
+
+    def describir(self):
+        return f"Sala: {self.nombre} | capacidad {self.capacidad} | {self.tarifa}/hora"
+
+
+class AlquilerEquipo(Servicio):
+    def __init__(self, identificador, nombre, tarifa, tipo_equipo):
+        super().__init__(identificador, nombre, tarifa)
+        self.tipo_equipo = texto(tipo_equipo, "Tipo de equipo")
+
+    def validar_parametros(self, duracion):
+        return numero(duracion, "Horas de alquiler", Decimal("1"), Decimal("168"))
+
+    def calcular_costo(self, duracion, impuesto=0, descuento=0):
+        return self._total(self.tarifa * self.validar_parametros(duracion), impuesto, descuento)
+
+    def describir(self):
+        return f"Equipo: {self.nombre} | tipo {self.tipo_equipo} | {self.tarifa}/hora"
+
+
+class AsesoriaEspecializada(Servicio):
+    def __init__(self, identificador, nombre, tarifa, especialidad):
+        super().__init__(identificador, nombre, tarifa)
+        self.especialidad = texto(especialidad, "Especialidad")
+
+    def validar_parametros(self, duracion):
+        return numero(duracion, "Horas de asesoría", Decimal("0.5"), Decimal("8"))
+
+    def calcular_costo(self, duracion, impuesto=0, descuento=0):
+        return self._total(self.tarifa * self.validar_parametros(duracion), impuesto, descuento)
+
+    def describir(self):
+        return f"Asesoría: {self.nombre} | {self.especialidad} | {self.tarifa}/hora"
+
