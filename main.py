@@ -199,3 +199,122 @@ class AsesoriaEspecializada(Servicio):
     def describir(self):
         return f"Asesoría: {self.nombre} | {self.especialidad} | {self.tarifa}/hora"
 
+
+class Reserva(Entidad):
+    def __init__(self, identificador, cliente, servicio, duracion, impuesto=0, descuento=0):
+        super().__init__(identificador)
+        if not isinstance(cliente, Cliente) or not isinstance(servicio, Servicio):
+            raise DatoInvalido("La reserva requiere un cliente y un servicio válidos.")
+        self.__cliente = cliente
+        self.__servicio = servicio
+        self.__duracion = servicio.validar_parametros(duracion)
+        self.__costo = servicio.calcular_costo(duracion, impuesto, descuento)
+        self.__estado = "PENDIENTE"
+
+    @property
+    def estado(self):
+        return self.__estado
+
+    @property
+    def costo(self):
+        return self.__costo
+
+    def confirmar(self):
+        if self.estado != "PENDIENTE":
+            raise OperacionNoPermitida("Solo se puede confirmar una reserva pendiente.")
+        if not self.__servicio.disponible:
+            raise ServicioNoDisponible("El servicio ya tiene una reserva activa.")
+        self.__servicio.cambiar_disponibilidad(False)
+        self.__estado = "CONFIRMADA"
+        LOG.info("Reserva confirmada: %s", self.identificador)
+
+    def cancelar(self):
+        if self.estado not in ("PENDIENTE", "CONFIRMADA"):
+            raise OperacionNoPermitida("No se puede cancelar una reserva cerrada.")
+        if self.estado == "CONFIRMADA":
+            self.__servicio.cambiar_disponibilidad(True)
+        self.__estado = "CANCELADA"
+        LOG.info("Reserva cancelada: %s", self.identificador)
+
+    def finalizar(self):
+        if self.estado != "CONFIRMADA":
+            raise OperacionNoPermitida("Solo se puede finalizar una reserva confirmada.")
+        self.__servicio.cambiar_disponibilidad(True)
+        self.__estado = "FINALIZADA"
+        LOG.info("Reserva finalizada: %s", self.identificador)
+
+    def procesar(self):
+        """Demuestra try/except/else/finally sin ocultar la causa del fallo."""
+        try:
+            self.confirmar()
+        except ErrorSistema:
+            LOG.exception("No se pudo procesar la reserva %s", self.identificador)
+            raise
+        else:
+            return self.costo
+        finally:
+            LOG.info("Fin del intento de procesamiento: %s | %s", self.identificador, self.estado)
+
+    def describir(self):
+        return (f"{self.identificador} | {self.__cliente.nombre} | {self.__servicio.nombre} | "
+                f"{self.__duracion} h | {self.estado} | Total: {self.costo}")
+
+
+class SistemaGestion:
+    def __init__(self):
+        self.__clientes = []
+        self.__servicios = []
+        self.__reservas = []
+
+    @property
+    def clientes(self):
+        return tuple(self.__clientes)
+
+    @property
+    def servicios(self):
+        return tuple(self.__servicios)
+
+    @property
+    def reservas(self):
+        return tuple(self.__reservas)
+
+    @staticmethod
+    def _buscar(lista, identificador):
+        for objeto in lista:
+            if objeto.identificador == identificador:
+                return objeto
+        raise DatoInvalido(f"No existe el identificador: {identificador}.")
+
+    @staticmethod
+    def _agregar(lista, objeto):
+        if any(item.identificador == objeto.identificador for item in lista):
+            raise DatoInvalido(f"Identificador duplicado: {objeto.identificador}.")
+        lista.append(objeto)
+        LOG.info("Registro creado: %s | %s", objeto.__class__.__name__, objeto.identificador)
+        return objeto
+
+    def registrar_cliente(self, identificador, nombre, correo, telefono):
+        return self._agregar(self.__clientes, Cliente(identificador, nombre, correo, telefono))
+
+    def registrar_servicio(self, servicio):
+        if not isinstance(servicio, Servicio):
+            raise DatoInvalido("Debe registrar un objeto de tipo Servicio.")
+        return self._agregar(self.__servicios, servicio)
+
+    def crear_reserva(self, identificador, cliente_id, servicio_id, duracion, impuesto=0, descuento=0):
+        if any(r.identificador == identificador for r in self.__reservas):
+            raise DatoInvalido("El identificador de la reserva ya existe.")
+        cliente = self._buscar(self.__clientes, cliente_id)
+        servicio = self._buscar(self.__servicios, servicio_id)
+        reserva = Reserva(identificador, cliente, servicio, duracion, impuesto, descuento)
+        reserva.procesar()
+        return self._agregar(self.__reservas, reserva)
+
+    def cancelar_reserva(self, identificador):
+        self._buscar(self.__reservas, identificador).cancelar()
+        return "Reserva cancelada correctamente."
+
+    def finalizar_reserva(self, identificador):
+        self._buscar(self.__reservas, identificador).finalizar()
+        return "Reserva finalizada correctamente."
+
